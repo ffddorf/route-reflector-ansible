@@ -1,0 +1,8 @@
+as_number: 207871
+
+static_peers:
+  # CR3
+  - router_id: "10.0.0.3"
+    peer_address: "10.1.0.3"
+    peer_as: 207871
+    route_reflector_client: true

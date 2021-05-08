@@ -1,0 +1,73 @@
+- name: Install kube-route-reflector
+  hosts: route-reflector
+  become: True
+  vars:
+    kube_reflector_version: "0.2.0-pre1"
+    terraform_cloud_workspace_id:
+      k3s: "ws-uhKFzGCyuewoGDRa"
+      dorfadventure: "ws-XCC4xuNMskX7qu76"
+  tasks:
+    - name: Make app dir
+      file:
+        path: /opt/kube-route-reflector
+        state: directory
+        mode: "u=rwx,g=rx,o=rx"
+    - name: Download binary
+      get_url:
+        url: "https://github.com/ffddorf/kube-route-reflector/releases/download/v{{ kube_reflector_version }}/kube-route-reflector_{{ kube_reflector_version }}_linux_amd64.tar.gz"
+        dest: /tmp/kube-route-reflector.tar.gz
+        mode: "u=rwx,g=rx,o=rx"
+    - name: Extract binary
+      unarchive:
+        src: /tmp/kube-route-reflector.tar.gz
+        dest: /opt/kube-route-reflector
+        remote_src: yes
+      notify: restart_service
+    - name: Configure service
+      block:
+        - terraform_cloud_outputs:
+            workspace_id: "{{ terraform_cloud_workspace_id[item] }}"
+            sensitive: true
+          delegate_to: localhost
+          delegate_facts: true
+          become: False
+          run_once: True
+          check_mode: False
+          loop: [k3s, dorfadventure]
+          register: tf_out
+        - set_fact: "tf_out_{{ item[item.ansible_loop_var] }}={{ item.outputs }}"
+          loop: "{{ tf_out.results }}"
+          loop_control:
+            label: "{{ item[item.ansible_loop_var] }}"
+        - copy:
+            content: "{{ kube_reflector_config | to_nice_yaml }}"
+            dest: /opt/kube-route-reflector/config.yml
+          vars:
+            cluster_entries: "{{ tf_out_k3s.dns_records | selectattr('name', 'equalto', 'k3s-dorfadventure') | selectattr('type', 'equalto', 'AAAA') }}"
+            kube_reflector_config:
+              clusters:
+                - name: dorfadventure
+                  host: "https://{{ cluster_entries[0].value | ipwrap }}:8443"
+                  token: "{{ tf_out_dorfadventure.reflector_service_account_token }}"
+                  insecure_disable_certificate_verify: true
+              bgp:
+                router_id: "{{ bgp_router_id }}"
+                local_as: "{{ as_number }}"
+                local_address: "{{ ansible_eth0.ipv4.address }}"
+                static_peers: "{{ static_peers }}"
+          notify: restart_service
+    - name: Configure systemd service
+      copy:
+        src: files/kube-route-reflector.service
+        dest: /etc/systemd/system/kube-route-reflector.service
+    - name: Enable systemd service
+      systemd:
+        name: kube-route-reflector
+        enabled: true
+        daemon_reload: true
+        state: started
+  handlers:
+    - name: restart_service
+      systemd:
+        name: kube-route-reflector
+        state: restarted
