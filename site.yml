@@ -2,7 +2,7 @@
   hosts: route-reflector
   become: True
   vars:
-    kube_reflector_version: "0.2.0-pre1"
+    kube_reflector_version: "0.2.0"
     terraform_cloud_workspace_id:
       k3s: "ws-uhKFzGCyuewoGDRa"
       dorfadventure: "ws-XCC4xuNMskX7qu76"
